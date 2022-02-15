@@ -9,8 +9,10 @@ import android.widget.AdapterView;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.CompoundButton;
 import android.widget.EditText;
 import android.widget.Spinner;
+import android.widget.TableRow;
 import android.widget.TextView;
 
 import com.agilisa.devices.DeviceFactory;
@@ -23,6 +25,11 @@ import com.agilisa.devices.models.CloseBatchResponse;
 import com.agilisa.devices.models.Configuration;
 import com.agilisa.devices.models.ConnectionStatus;
 import com.agilisa.devices.models.ErrorResponse;
+import com.agilisa.devices.models.FiscalControlDetails;
+import com.agilisa.devices.models.FiscalControlTokenRequest;
+import com.agilisa.devices.models.FiscalControlTokenResponse;
+import com.agilisa.devices.models.SalesReportResponse;
+import com.agilisa.devices.models.SearchTransactionsResponse;
 import com.agilisa.devices.models.TransactionRequest;
 import com.agilisa.devices.models.TransactionResponse;
 import com.agilisa.devices.models.VoucherData;
@@ -38,10 +45,14 @@ public class MainActivity extends AppCompatActivity implements IDeviceListener {
 
     Spinner spnTransactionType;
     ViewGroup configLayout, transactionLayout, responseLayout;
-    EditText etCurrency,etServiceKey,etTerminalCode,etMerchantCode,  etTransactionId, etInvoice, etAmount, etCashbackAmount, etTaxesAmount, etTipAmount,etKeySlot, etMinPinLength, etMaxPinLength,etTimeout,etExternalData, etCardNumber, etVoucherNumber, etAuthNumber, etTransactionIdResponse;
+    EditText etCurrency,etServiceKey,etTerminalCode,etMerchantCode,  etTransactionId, etInvoice, etAmount, etCashbackAmount, etStateTax,etCityTax,etReducedStateTax, etTipAmount,etKeySlot, etMinPinLength, etMaxPinLength,etTimeout,etExternalData, etCardNumber, etVoucherNumber, etAuthNumber, etTransactionIdResponse;
     CheckBox cbManualEntry, cbContactEntry, cbSwipeEntry, cbFallbackEntry, cbContactlessEntry;
     Button btnBack, btnNext;
     TextView tvResponse;
+    TableRow trTaxId, trTerminalNumber, trPassword,trDeviceName,trToken, trSearchToken,trDeleteToken;
+    EditText etTaxId,etTerminalNumber,etPassword,etDeviceName,etToken;
+    Button btnSearchToken,btnDeleteToken;
+    CheckBox cbEnableControlNumber;
 
     Global.TRANSACTION_TYPE selectedTransactionType;
     @Override
@@ -54,6 +65,59 @@ public class MainActivity extends AppCompatActivity implements IDeviceListener {
         etTerminalCode = findViewById(R.id.etTerminalCode);
         etMerchantCode = findViewById(R.id.etMerchantCode);
 
+        trTaxId= findViewById(R.id.trTaxId);
+        trTerminalNumber= findViewById(R.id.trTerminalNumber);
+        trPassword= findViewById(R.id.trPassword);
+        trDeviceName= findViewById(R.id.trDeviceName);
+        trToken= findViewById(R.id.trToken);
+        trSearchToken= findViewById(R.id.trSearchToken);
+        trDeleteToken= findViewById(R.id.trDeleteToken);
+
+        etTaxId= findViewById(R.id.etTaxId);
+        etTerminalNumber= findViewById(R.id.etTerminalNumber);
+        etPassword= findViewById(R.id.etPassword);
+        etDeviceName= findViewById(R.id.etDeviceName);
+        etToken= findViewById(R.id.etToken);
+
+        btnSearchToken= findViewById(R.id.btnSearchToken);
+        btnSearchToken.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                if(!validateGetControlNumber()){
+                    return;
+                }
+                Configuration configuration = new Configuration(Globals.HOST,etCurrency.getText().toString().trim(),etServiceKey.getText().toString().trim(),etTerminalCode.getText().toString().trim(),etMerchantCode.getText().toString().trim());
+
+                DeviceFactory factory = DeviceFactory.getInstance(MainActivity.this,configuration);
+
+                IDevice device = factory.init(DeviceFactory.DEVICE_TYPE.ANDROID,MainActivity.this);
+                device.connect();
+                FiscalControlTokenRequest fiscalControlTokenRequest = FiscalControlTokenRequest.newFiscalControlInstance("07877838689","DP05","AD441", Functions.getDeviceName());
+                device.getFiscalControlToken(fiscalControlTokenRequest);
+
+            }
+        });
+        btnDeleteToken= findViewById(R.id.btnDeleteToken);
+        btnDeleteToken.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View view) {
+                DeleteTokenResult();
+            }
+        });
+
+        cbEnableControlNumber = findViewById(R.id.cbEnableControlNumber);
+        cbEnableControlNumber.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton compoundButton, boolean b) {
+                enableControlFiscal(b);
+            }
+        });
+
+        cbEnableControlNumber.setChecked(com.far.paynetsdkexample.Global.Functions.getFiscalControlToken(MainActivity.this)!=null);
+        enableControlFiscal(cbEnableControlNumber.isChecked());
+
+
+
         spnTransactionType = findViewById(R.id.spnTransactionType);
         configLayout = findViewById(R.id.configLayout);
         transactionLayout = findViewById(R.id.transactionLayout);
@@ -63,7 +127,9 @@ public class MainActivity extends AppCompatActivity implements IDeviceListener {
         etServiceKey = findViewById(R.id.etServiceKey);
         etAmount = findViewById(R.id.etAmount);
         etCashbackAmount= findViewById(R.id.etCashbackAmount);
-        etTaxesAmount= findViewById(R.id.etTaxesAmount);
+        etStateTax=findViewById(R.id.etStateTax);
+        etCityTax=findViewById(R.id.etCityTax);
+        etReducedStateTax=findViewById(R.id.etReducedStateTax);
         etTipAmount= findViewById(R.id.etTipAmount);
         etKeySlot= findViewById(R.id.etKeySlot);
         etMinPinLength= findViewById(R.id.etMinPinLength);
@@ -129,6 +195,13 @@ public class MainActivity extends AppCompatActivity implements IDeviceListener {
     }
 
 
+    void DeleteTokenResult(){
+        btnSearchToken.setEnabled(true);
+        com.far.paynetsdkexample.Global.Functions.saveControlFiscalResponse(MainActivity.this,null);
+        enableControlFiscal(cbEnableControlNumber.isChecked());
+
+    }
+
     private void fillTransactionSpinner(){
         ArrayList<KV> arrayList = new ArrayList<>();
         arrayList.add(new KV(Global.TRANSACTION_TYPE.SALE,"SALE"));
@@ -152,6 +225,46 @@ public class MainActivity extends AppCompatActivity implements IDeviceListener {
 
     }
 
+    void enableControlFiscal(boolean isEnabled){
+
+        FiscalControlTokenResponse f = com.far.paynetsdkexample.Global.Functions.getFiscalControlToken(MainActivity.this);
+
+        trTaxId.setVisibility(isEnabled && f==null?View.VISIBLE:View.GONE);
+        trTerminalNumber.setVisibility(isEnabled && f==null?View.VISIBLE:View.GONE);
+        trPassword.setVisibility(isEnabled && f==null?View.VISIBLE:View.GONE);
+        trDeviceName.setVisibility(isEnabled && f==null?View.VISIBLE:View.GONE);
+        trToken.setVisibility(isEnabled && f!=null?View.VISIBLE:View.GONE);
+        trSearchToken.setVisibility(isEnabled && f==null?View.VISIBLE:View.GONE);
+        trDeleteToken.setVisibility(isEnabled && f!=null?View.VISIBLE:View.GONE);
+
+        if(f != null){
+            etToken.setText(f.getToken());
+        }else{
+            etToken.setText("");
+            etTaxId.setText("");
+            etTerminalNumber.setText("");
+            etPassword.setText("");
+            etDeviceName.setText("");
+            etToken.setText("");
+        }
+    }
+
+    boolean validateGetControlNumber(){
+        if(etTaxId.getText().toString().trim().isEmpty()){
+            Snackbar.make(configLayout,"TaxId cannot be empty or white space", BaseTransientBottomBar.LENGTH_LONG).show();
+            return false;
+        }else if(etTerminalNumber.getText().toString().trim().isEmpty()){
+            Snackbar.make(configLayout,"TerminalNumber cannot be empty or white space", BaseTransientBottomBar.LENGTH_LONG).show();
+            return false;
+        }else if(etPassword.getText().toString().trim().isEmpty()){
+            Snackbar.make(configLayout,"Password cannot be empty or white space", BaseTransientBottomBar.LENGTH_LONG).show();
+            return false;
+        }else if(etDeviceName.getText().toString().trim().isEmpty()){
+            Snackbar.make(configLayout,"DeviceName cannot be empty or white space", BaseTransientBottomBar.LENGTH_LONG).show();
+            return false;
+        }
+        return true;
+    }
     private void prepare(){
 
         findViewById(R.id.trTransactionId).setVisibility(hasTransactionId()?View.VISIBLE:View.GONE);
@@ -159,7 +272,9 @@ public class MainActivity extends AppCompatActivity implements IDeviceListener {
         findViewById(R.id.trServiceKey).setVisibility(hasServiceKey()?View.VISIBLE: View.GONE);
         findViewById(R.id.trAmount).setVisibility(hasAmount()? View.VISIBLE: View.GONE);
         findViewById(R.id.trCashback).setVisibility(hasCashback()? View.VISIBLE:View.GONE);
-        findViewById(R.id.trTaxes).setVisibility(hasTaxes()? View.VISIBLE:View.GONE);
+        findViewById(R.id.trStateTax).setVisibility(hasTaxes()? View.VISIBLE:View.GONE);
+        findViewById(R.id.trCityTax).setVisibility(hasTaxes()? View.VISIBLE:View.GONE);
+        findViewById(R.id.trReducedStateTax).setVisibility(hasTaxes()? View.VISIBLE:View.GONE);
         findViewById(R.id.trTips).setVisibility(hasTips()? View.VISIBLE:View.GONE);
         findViewById(R.id.trKeySlot).setVisibility(hasKeySlot()? View.VISIBLE:View.GONE);
         findViewById(R.id.trMinPinLength).setVisibility(hasKeySlot()? View.VISIBLE:View.GONE);
@@ -190,7 +305,7 @@ public class MainActivity extends AppCompatActivity implements IDeviceListener {
             cbManualEntry.setEnabled(false);
             cbSwipeEntry.setEnabled(true);
         }else{
-            etServiceKey.setText("TEST-001");
+            etServiceKey.setText("COND-01");
             cbContactEntry.setEnabled(true);
             cbContactlessEntry.setEnabled(true);
             cbFallbackEntry.setEnabled(true);
@@ -228,7 +343,7 @@ public class MainActivity extends AppCompatActivity implements IDeviceListener {
     }
 
     private boolean hasTaxes(){
-        boolean taxes = (selectedTransactionType == Global.TRANSACTION_TYPE.SALE || selectedTransactionType == Global.TRANSACTION_TYPE.AUTHORIZATION || selectedTransactionType == Global.TRANSACTION_TYPE.POSTAUTHORIZATION ||
+        boolean taxes = (selectedTransactionType == Global.TRANSACTION_TYPE.SALE || selectedTransactionType == Global.TRANSACTION_TYPE.AUTHORIZATION || selectedTransactionType == Global.TRANSACTION_TYPE.POSTAUTHORIZATION || selectedTransactionType == Global.TRANSACTION_TYPE.REFUND ||
                 selectedTransactionType == Global.TRANSACTION_TYPE.EBT_CASHPURCHASE || selectedTransactionType == Global.TRANSACTION_TYPE.EBT_CASHPURCHASE_CASHBACK || selectedTransactionType == Global.TRANSACTION_TYPE.EBT_CASHADVANCE ||   selectedTransactionType == Global.TRANSACTION_TYPE.EBT_CASHVOUCHER);
         return taxes;
     }
@@ -273,11 +388,32 @@ public class MainActivity extends AppCompatActivity implements IDeviceListener {
         return d;
     }
 
-    private double getTaxAmount(){
+    private double getStateTaxAmount(){
         double d = 0;
         try{
-            d = Double.parseDouble(etTaxesAmount.getText().toString().trim());
+            d = Double.parseDouble(etStateTax.getText().toString().trim());
         }catch (Exception e){}
+        return d;
+    }
+
+    private double getCityTaxAmount(){
+        double d = 0;
+        try{
+            d = Double.parseDouble(etCityTax.getText().toString().trim());
+        }catch (Exception e){}
+        return d;
+    }
+
+    private double getReducedStateTaxAmount(){
+        double d = 0;
+        try{
+            d = Double.parseDouble(etReducedStateTax.getText().toString().trim());
+        }catch (Exception e){}
+        return d;
+    }
+
+    private double getTotalTaxesAmount(){
+        double d = getStateTaxAmount() + getCityTaxAmount() + getReducedStateTaxAmount();
         return d;
     }
 
@@ -395,35 +531,40 @@ public class MainActivity extends AppCompatActivity implements IDeviceListener {
     }
 
     private Object getRequest(){
+        FiscalControlDetails fcd = null;
+        if(cbEnableControlNumber.isChecked() &&  com.far.paynetsdkexample.Global.Functions.getFiscalControlToken(MainActivity.this) != null){
+            fcd = new FiscalControlDetails(com.far.paynetsdkexample.Global.Functions.getFiscalControlToken(MainActivity.this),getStateTaxAmount(),getCityTaxAmount(),getReducedStateTaxAmount());
+        }
         if(selectedTransactionType == Global.TRANSACTION_TYPE.SALE){
-            return TransactionRequest.newSaleInstance(Global.ENDPOINT_TYPE.PAXBROADPOS,getInvoice(),getAmount(),getCashbackAmount(),getTaxAmount(),getTipAmount(),getKeySlot(),getMinPinLength(),getMaxPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData());
+            return TransactionRequest.newSaleInstance(Global.ENDPOINT_TYPE.PAXBROADPOS,getInvoice(),getAmount(),getCashbackAmount(),getTotalTaxesAmount(),getTipAmount(),getKeySlot(),getMinPinLength(),getMaxPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData(),fcd);
         }else if(selectedTransactionType == Global.TRANSACTION_TYPE.AUTHORIZATION){
-            return TransactionRequest.newAuthInstance(Global.ENDPOINT_TYPE.PAXBROADPOS,getInvoice(),getAmount(),getTaxAmount(),getKeySlot(),getMinPinLength(),getMaxPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData());
+            return TransactionRequest.newAuthInstance(Global.ENDPOINT_TYPE.PAXBROADPOS,getInvoice(),getAmount(),getTotalTaxesAmount(),getKeySlot(),getMinPinLength(),getMaxPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData());
         }else if(selectedTransactionType == Global.TRANSACTION_TYPE.POSTAUTHORIZATION){
-            return TransactionRequest.newPostAuthInstance(getTransactionId(),getAmount(),getTaxAmount(),getTipAmount(),getTimeout(),getExternalData());
+            return TransactionRequest.newPostAuthInstance(getTransactionId(),getAmount(),getTotalTaxesAmount(),getTipAmount(),getTimeout(),getExternalData(),fcd);
         }else if(selectedTransactionType == Global.TRANSACTION_TYPE.VOID){
-            return TransactionRequest.newVoidInstance(getTransactionId(),getTimeout(),getExternalData());
+            return TransactionRequest.newVoidInstance(getTransactionId(),getTimeout(),getExternalData(),fcd);
         }else if(selectedTransactionType == Global.TRANSACTION_TYPE.REFUND){
-            return TransactionRequest.newReturnInstance(Global.ENDPOINT_TYPE.PAXBROADPOS,getInvoice(),getAmount(),getKeySlot(),getMinPinLength(),getMaxPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData());
+            return TransactionRequest.newReturnInstance(Global.ENDPOINT_TYPE.PAXBROADPOS,getInvoice(),getAmount(),getTotalTaxesAmount(),getKeySlot(),getMinPinLength(),getMaxPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData(),fcd);
         }else if(selectedTransactionType == Global.TRANSACTION_TYPE.CLOSEBATCH){
             return CloseBatchRequest.newCloseBatchIstance(Global.ENDPOINT_TYPE.PAXBROADPOS);
         }else if(selectedTransactionType == Global.TRANSACTION_TYPE.EBT_FOODPURCHASE){
-            return TransactionRequest.newEbtFoodPurchaseInstance(Global.ENDPOINT_TYPE.API,getInvoice(),getAmount(),getKeySlot(),getMinPinLength(),getMaxPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData());
+            return TransactionRequest.newEbtFoodPurchaseInstance(Global.ENDPOINT_TYPE.API,getInvoice(),getAmount(),getKeySlot(),getMinPinLength(),getMaxPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData(),fcd);
         }else if(selectedTransactionType == Global.TRANSACTION_TYPE.EBT_CASHPURCHASE){
-            return TransactionRequest.newEbtEbtCashPurchaseInstance(Global.ENDPOINT_TYPE.API,getInvoice(),getAmount(),getTaxAmount(),getKeySlot(),getMinPinLength(),getMinPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData());
+            return TransactionRequest.newEbtEbtCashPurchaseInstance(Global.ENDPOINT_TYPE.API,getInvoice(),getAmount(),getTotalTaxesAmount(),getKeySlot(),getMinPinLength(),getMinPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData(),fcd);
         }else if(selectedTransactionType == Global.TRANSACTION_TYPE.EBT_FOOD_RETURN){
-            return TransactionRequest.newEbtFoodReturnInstance(Global.ENDPOINT_TYPE.API,getInvoice(),getAmount(),getKeySlot(),getMinPinLength(),getMaxPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData());
+            return TransactionRequest.newEbtFoodReturnInstance(Global.ENDPOINT_TYPE.API,getInvoice(),getAmount(),getKeySlot(),getMinPinLength(),getMaxPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData(),fcd);
         }else if(selectedTransactionType == Global.TRANSACTION_TYPE.EBT_BALANCE_INQUIRY){
             return TransactionRequest.newEbtBalanceInquiryInstance(Global.ENDPOINT_TYPE.API,getKeySlot(),getMinPinLength(),getMaxPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData());
         }else if(selectedTransactionType == Global.TRANSACTION_TYPE.EBT_CASHPURCHASE_CASHBACK){
-            return TransactionRequest.newEbtCashPurchaseWithCashbackInstance(Global.ENDPOINT_TYPE.API,getInvoice(),getAmount(),getCashbackAmount(),getTaxAmount(),getKeySlot(),getMinPinLength(),getMaxPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData());
+            return TransactionRequest.newEbtCashPurchaseWithCashbackInstance(Global.ENDPOINT_TYPE.API,getInvoice(),getAmount(),getCashbackAmount(),getTotalTaxesAmount(),getKeySlot(),getMinPinLength(),getMaxPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData(),fcd);
         }else if(selectedTransactionType == Global.TRANSACTION_TYPE.EBT_CASHADVANCE){
-            return TransactionRequest.newEbtCashAdvanceInstance(Global.ENDPOINT_TYPE.API,getInvoice(),getAmount(),getKeySlot(),getMinPinLength(),getMaxPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData());
+            return TransactionRequest.newEbtCashAdvanceInstance(Global.ENDPOINT_TYPE.API,getInvoice(),getAmount(),getKeySlot(),getMinPinLength(),getMaxPinLength(),getManualEntry(),getContactEntry(),getSwipeEntry(),getFallbackEntry(),getContactlessEntry(),getTimeout(),getExternalData(),fcd);
         }else if(selectedTransactionType == Global.TRANSACTION_TYPE.EBT_FOODVOUCHER){
-            return TransactionRequest.newEbtFoodVoucherInstance(Global.ENDPOINT_TYPE.API,new VoucherData(getCardNumber(),getVoucherNumber(),getAuthNumber()),getAmount(),getTimeout(),getExternalData());
+            return TransactionRequest.newEbtFoodVoucherInstance(Global.ENDPOINT_TYPE.API,new VoucherData(getCardNumber(),getVoucherNumber(),getAuthNumber()),getAmount(),getTimeout(),getExternalData(),fcd);
         }else if(selectedTransactionType == Global.TRANSACTION_TYPE.EBT_CASHVOUCHER){
-            return TransactionRequest.newEbtCashVoucherInstance(Global.ENDPOINT_TYPE.API,new VoucherData(getCardNumber(),getVoucherNumber(),getAuthNumber()),getAmount(),getTaxAmount(),getTimeout(),getExternalData());
+            return TransactionRequest.newEbtCashVoucherInstance(Global.ENDPOINT_TYPE.API,new VoucherData(getCardNumber(),getVoucherNumber(),getAuthNumber()),getAmount(),getTotalTaxesAmount(),getTimeout(),getExternalData(),fcd);
         }
+
         return null;
     }
 
@@ -509,5 +650,22 @@ public class MainActivity extends AppCompatActivity implements IDeviceListener {
             }
         });
 
+    }
+
+    @Override
+    public void onTransactionSearchResponse(SearchTransactionsResponse searchTransactionsResponse) {
+
+    }
+
+    @Override
+    public void onSalesReportResponse(SalesReportResponse salesReportResponse) {
+
+    }
+
+    @Override
+    public void onGetFiscalTokenResponse(FiscalControlTokenResponse fiscalControlTokenResponse) {
+        btnSearchToken.setEnabled(true);
+        com.far.paynetsdkexample.Global.Functions.saveControlFiscalResponse(MainActivity.this,fiscalControlTokenResponse);
+        enableControlFiscal(cbEnableControlNumber.isChecked());
     }
 }
